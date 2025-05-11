@@ -24,7 +24,7 @@ import com.arifmusic.app.data.model.*
 
 
     ],
-    version = 20,
+    version = 23,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
