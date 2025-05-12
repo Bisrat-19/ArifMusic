@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
-
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,7 +33,6 @@ import com.arifmusic.app.ui.screens.library.LibraryScreen
 import com.arifmusic.app.ui.screens.listener.ListenerProfileScreen
 import com.arifmusic.app.ui.screens.login.LoginScreen
 import com.arifmusic.app.ui.screens.music.MusicListScreen
-import com.arifmusic.app.ui.screens.notification.NotificationScreen
 import com.arifmusic.app.ui.screens.player.PlayerScreen
 import com.arifmusic.app.ui.screens.profile.*
 import com.arifmusic.app.ui.screens.register.RegisterScreen
@@ -49,8 +47,6 @@ fun ArifMusicNavGraph(
     startDestination: String,
     modifier: Modifier = Modifier,
     sessionManager: SessionManager,
-
-
 ) {
     val authViewModel: AuthViewModel = hiltViewModel()
     val musicViewModel: MusicViewModel = hiltViewModel()
@@ -61,6 +57,7 @@ fun ArifMusicNavGraph(
     val libraryViewModel: LibraryViewModel = hiltViewModel()
     val adminViewModel: AdminViewModel = hiltViewModel()
     val followViewModel: FollowViewModel = hiltViewModel()
+    val notificationViewModel: NotificationViewModel = hiltViewModel()
 
     NavHost(
         navController = navController,
@@ -72,6 +69,7 @@ fun ArifMusicNavGraph(
                 onLoginClick = { navController.navigate(ArifMusicScreens.Login.name) },
                 onRegisterClick = { navController.navigate(ArifMusicScreens.Register.name) },
                 onGuestClick = {
+                    // Set user as guest in session manager
                     navController.navigate(ArifMusicScreens.Home.name) {
                         popUpTo(ArifMusicScreens.Welcome.name) { inclusive = true }
                     }
@@ -104,8 +102,19 @@ fun ArifMusicNavGraph(
             )
         }
 
-        // Register Screen
-        composable(ArifMusicScreens.Register.name) {
+        // Register Screen with optional "from" parameter to track where user came from
+        composable(
+            route = "${ArifMusicScreens.Register.name}?from={from}",
+            arguments = listOf(
+                navArgument("from") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val fromScreen = backStackEntry.arguments?.getString("from")
+
             RegisterScreen(
                 authViewModel = authViewModel,
                 viewModel = hiltViewModel(),
@@ -114,7 +123,18 @@ fun ArifMusicNavGraph(
                         popUpTo(navController.graph.id) { inclusive = true }
                     }
                 },
-                onBackClick = { navController.popBackStack() },
+                // Handle back button based on where user came from
+                onBackClick = {
+                    if (fromScreen != null) {
+                        // If redirected from Library or Profile, go back to Home
+                        navController.navigate(ArifMusicScreens.Home.name) {
+                            popUpTo(ArifMusicScreens.Home.name) { inclusive = false }
+                        }
+                    } else {
+                        // Normal back behavior
+                        navController.popBackStack()
+                    }
+                },
                 onLoginClick = { navController.navigate(ArifMusicScreens.Login.name) }
             )
         }
@@ -124,7 +144,6 @@ fun ArifMusicNavGraph(
             val libraryViewModel: LibraryViewModel = hiltViewModel()
             val sessionViewModel: SessionViewModel = hiltViewModel()
             val followViewModel: FollowViewModel = hiltViewModel()
-
 
             HomeScreen(
                 exploreViewModel = exploreViewModel,
@@ -176,7 +195,6 @@ fun ArifMusicNavGraph(
             )
         }
 
-
         composable(ArifMusicScreens.Explore.name) {
             ExploreScreen(
                 exploreViewModel = exploreViewModel,
@@ -205,65 +223,59 @@ fun ArifMusicNavGraph(
             )
         }
 
-
         composable(ArifMusicScreens.Library.name) {
             val currentUser by authViewModel.currentUser.collectAsState()
             val isGuest = currentUser?.userType == UserType.GUEST
-            val userId = currentUser?.id ?: return@composable
-
 
             LaunchedEffect(isGuest) {
                 if (isGuest) {
-                    navController.navigate(ArifMusicScreens.Register.name) {
-                        popUpTo(ArifMusicScreens.Home.name) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
+                    navController.navigate(ArifMusicScreens.Welcome.name) {
+                        popUpTo(0) { inclusive = true }                    }
                 }
             }
 
-            if (isGuest) return@composable
+            if (!isGuest) {
+                val userId = currentUser?.id ?: return@composable
+                val scope = rememberCoroutineScope()
+                val snackbarHostState = remember { SnackbarHostState() }
 
-
-            val scope = rememberCoroutineScope()
-            val snackbarHostState = remember { SnackbarHostState() }
-
-            LibraryScreen(
-                libraryViewModel = libraryViewModel,
-                musicViewModel = musicViewModel,
-                userId = userId,
-                onPlaylistClick = { playlistId ->
-                    navController.navigate("${ArifMusicScreens.PlaylistDetail.name}/$playlistId")
-                },
-                onCreatePlaylistClick = {
-                },
-                onMusicClick = { music ->
-                    musicViewModel.playMusic(music)
-                    navController.navigate("${ArifMusicScreens.Player.name}/${music.id}")
-                },
-                onAddToPlaylistClick = { music, playlistId ->
-                    scope.launch {
-                        libraryViewModel.addMusicToLibraryItem(playlistId, music, true)
-                        snackbarHostState.showSnackbar(
-                            message = "Added to playlist",
-                            duration = SnackbarDuration.Short
-                        )
+                LibraryScreen(
+                    libraryViewModel = libraryViewModel,
+                    musicViewModel = musicViewModel,
+                    userId = userId,
+                    onPlaylistClick = { playlistId ->
+                        navController.navigate("${ArifMusicScreens.PlaylistDetail.name}/$playlistId")
+                    },
+                    onCreatePlaylistClick = {
+                        // Implement playlist creation
+                    },
+                    onMusicClick = { music ->
+                        musicViewModel.playMusic(music)
+                        navController.navigate("${ArifMusicScreens.Player.name}/${music.id}")
+                    },
+                    onAddToPlaylistClick = { music, playlistId ->
+                        scope.launch {
+                            libraryViewModel.addMusicToLibraryItem(playlistId, music, true)
+                            snackbarHostState.showSnackbar(
+                                message = "Added to playlist",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    },
+                    onRemoveFromWatchlistClick = { musicId, watchlistId ->
+                        scope.launch {
+                            libraryViewModel.removeMusicFromLibraryItem(watchlistId, musicId, false)
+                            musicViewModel.toggleFavorite(musicId)
+                            snackbarHostState.showSnackbar(
+                                message = "Removed from watchlist",
+                                duration = SnackbarDuration.Short
+                            )
+                            musicViewModel.loadFavorites()
+                        }
                     }
-                },
-                onRemoveFromWatchlistClick = { musicId, watchlistId ->
-                    scope.launch {
-                        libraryViewModel.removeMusicFromLibraryItem(watchlistId, musicId, false)
-                        musicViewModel.toggleFavorite(musicId)
-                        snackbarHostState.showSnackbar(
-                            message = "Removed from watchlist",
-                            duration = SnackbarDuration.Short
-                        )
-                        musicViewModel.loadFavorites()
-                    }
-                }
-            )
+                )
+            }
         }
-
 
         composable(
             route = "${ArifMusicScreens.Player.name}/{musicId}",
@@ -302,7 +314,6 @@ fun ArifMusicNavGraph(
             )
         }
 
-
         composable(
             route = "${ArifMusicScreens.ArtistDetail.name}/{artistId}",
             arguments = listOf(navArgument("artistId") { type = NavType.StringType })
@@ -322,122 +333,107 @@ fun ArifMusicNavGraph(
             )
         }
 
-
         composable(ArifMusicScreens.Profile.name) {
             val currentUser by authViewModel.currentUser.collectAsState()
             val isGuest = currentUser?.userType == UserType.GUEST
-
             LaunchedEffect(isGuest) {
                 if (isGuest) {
-                    navController.navigate(ArifMusicScreens.Register.name) {
-                        popUpTo(ArifMusicScreens.Home.name) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
+                    navController.navigate(ArifMusicScreens.Welcome.name) {
+                        popUpTo(ArifMusicScreens.Home.name) { inclusive = true }
                     }
                 }
             }
 
-            if (isGuest) return@composable
-
-            when (currentUser?.userType) {
-                UserType.ADMIN -> {
-                    AdminProfileScreen(
-                        onAdminPanelClick = { navController.navigate(ArifMusicScreens.AdminPanel.name) },
-                        onManageFeaturedClick = { navController.navigate(ArifMusicScreens.AdminFeaturedContent.name) },
-                        onSettingsClick = { navController.navigate(ArifMusicScreens.Settings.name) },
-                        onHelpAndSupportClick = { navController.navigate(ArifMusicScreens.HelpSupport.name) },
-                        onAboutClick = { navController.navigate(ArifMusicScreens.About.name) },
-                        onLogoutClick = {
-                            authViewModel.logout()
-                            navController.navigate(ArifMusicScreens.Welcome.name) {
-                                popUpTo(navController.graph.id) { inclusive = true }
-                            }
-                        },
-                        currentUser = currentUser,
-                        onEditProfileClick = {},
-                        authViewModel = authViewModel
-                    )
-                }
-
-                UserType.ARTIST -> {
-                    ArtistProfileScreen(
-                        onBackClick = { navController.popBackStack() },
-                        onDashboardClick = { navController.navigate(ArifMusicScreens.ArtistDashboard.name) },
-                        onEditProfileClick = { navController.navigate(ArifMusicScreens.EditProfile.name) },
-                        onGetVerifiedClick = { navController.navigate(ArifMusicScreens.ArtistVerification.name) },
-                        onSettingsClick = { navController.navigate(ArifMusicScreens.Settings.name) },
-                        onHelpClick = { navController.navigate(ArifMusicScreens.HelpSupport.name) },
-                        onAboutClick = { navController.navigate(ArifMusicScreens.About.name) },
-                        onLogoutClick = {
-                            authViewModel.logout()
-                            navController.navigate(ArifMusicScreens.Welcome.name) {
-                                popUpTo(navController.graph.id) { inclusive = true }
-                            }
-                        },
-                        artistViewModel = artistViewModel,
-                        authViewModel = authViewModel,
-                        followViewModel = followViewModel,
-                        currentUser = currentUser
-                    )
-                }
-
-                UserType.LISTENER -> {
-                    ListenerProfileScreen(
-                        onBackClick = { navController.popBackStack() },
-                        onEditProfileClick = { navController.navigate(ArifMusicScreens.EditProfile.name) },
-                        onSettingsClick = { navController.navigate(ArifMusicScreens.Settings.name) },
-                        onHelpClick = { navController.navigate(ArifMusicScreens.HelpSupport.name) },
-                        onAboutClick = { navController.navigate(ArifMusicScreens.About.name) },
-                        onLogoutClick = {
-                            authViewModel.logout()
-                            navController.navigate(ArifMusicScreens.Welcome.name) {
-                                popUpTo(navController.graph.id) { inclusive = true }
-                            }
-                        },
-                        authViewModel = authViewModel,
-                        followViewModel = followViewModel,
-                        currentUser = currentUser,
-                    )
-                }
-
-                else -> {
-                    LaunchedEffect(Unit) {
-                        val session = sessionManager.getCurrentUser()
-
-                        when {
-                            !session.isLoggedIn && session.email.isBlank() -> {
-                                navController.navigate(ArifMusicScreens.Register.name) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            }
-
-                            !session.isLoggedIn && session.email.isNotBlank() -> {
+            if (!isGuest) {
+                when (currentUser?.userType) {
+                    UserType.ADMIN -> {
+                        AdminProfileScreen(
+                            onAdminPanelClick = { navController.navigate(ArifMusicScreens.AdminPanel.name) },
+                            onManageFeaturedClick = { navController.navigate(ArifMusicScreens.AdminFeaturedContent.name) },
+                            onSettingsClick = { navController.navigate(ArifMusicScreens.Settings.name) },
+                            onHelpAndSupportClick = { navController.navigate(ArifMusicScreens.HelpSupport.name) },
+                            onAboutClick = { navController.navigate(ArifMusicScreens.About.name) },
+                            onLogoutClick = {
+                                authViewModel.logout()
                                 navController.navigate(ArifMusicScreens.Welcome.name) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            }
+                                    popUpTo(0) { inclusive = true }                                }
+                            },
+                            currentUser = currentUser,
+                            onEditProfileClick = { navController.navigate(ArifMusicScreens.EditProfile.name) },
+                            authViewModel = authViewModel
+                        )
+                    }
 
-                            else -> {
-                                navController.navigate(ArifMusicScreens.Home.name) {
-                                    popUpTo(0) { inclusive = true }
+                    UserType.ARTIST -> {
+                        ArtistProfileScreen(
+                            onBackClick = { navController.popBackStack() },
+                            onDashboardClick = { navController.navigate(ArifMusicScreens.ArtistDashboard.name) },
+                            onEditProfileClick = { navController.navigate(ArifMusicScreens.EditProfile.name) },
+                            onGetVerifiedClick = { navController.navigate(ArifMusicScreens.ArtistVerification.name) },
+                            onSettingsClick = { navController.navigate(ArifMusicScreens.Settings.name) },
+                            onHelpClick = { navController.navigate(ArifMusicScreens.HelpSupport.name) },
+                            onAboutClick = { navController.navigate(ArifMusicScreens.About.name) },
+                            onLogoutClick = {
+                                authViewModel.logout()
+                                navController.navigate(ArifMusicScreens.Welcome.name) {
+                                    popUpTo(0) { inclusive = true }                                }
+                            },
+                            artistViewModel = artistViewModel,
+                            authViewModel = authViewModel,
+                            followViewModel = followViewModel,
+                            currentUser = currentUser
+                        )
+                    }
+
+                    UserType.LISTENER -> {
+                        ListenerProfileScreen(
+                            onBackClick = { navController.popBackStack() },
+                            onEditProfileClick = { navController.navigate(ArifMusicScreens.EditProfile.name) },
+                            onSettingsClick = { navController.navigate(ArifMusicScreens.Settings.name) },
+                            onHelpClick = { navController.navigate(ArifMusicScreens.HelpSupport.name) },
+                            onAboutClick = { navController.navigate(ArifMusicScreens.About.name) },
+                            onLogoutClick = {
+                                authViewModel.logout()
+                                navController.navigate(ArifMusicScreens.Welcome.name) {
+                                    popUpTo(0) { inclusive = true }                                }
+                            },
+                            authViewModel = authViewModel,
+                            followViewModel = followViewModel,
+                            currentUser = currentUser,
+                        )
+                    }
+
+                    else -> {
+                        LaunchedEffect(Unit) {
+                            val session = sessionManager.getCurrentUser()
+
+                            when {
+                                !session.isLoggedIn && session.email.isBlank() -> {
+                                    navController.navigate(ArifMusicScreens.Welcome.name) {
+                                        popUpTo(0) { inclusive = true }                                    }
+                                }
+
+                                !session.isLoggedIn && session.email.isNotBlank() -> {
+                                    navController.navigate(ArifMusicScreens.Welcome.name) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
+
+                                else -> {
+                                    navController.navigate(ArifMusicScreens.Home.name) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
                                 }
                             }
                         }
-                    }
 
-
-
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
                     }
                 }
-
-
             }
         }
-
-
-
 
         composable(
             route = "${ArifMusicScreens.MusicList.name}/{listType}",
@@ -457,8 +453,6 @@ fun ArifMusicNavGraph(
                 }
             )
         }
-
-
 
         composable(ArifMusicScreens.Settings.name) {
             SettingsScreen(
@@ -486,7 +480,6 @@ fun ArifMusicNavGraph(
             )
         }
 
-
         composable(ArifMusicScreens.Favorite.name) {
             val musicViewModel: MusicViewModel = hiltViewModel()
 
@@ -505,16 +498,6 @@ fun ArifMusicNavGraph(
 
 
 
-        composable(ArifMusicScreens.Notification.name) {
-            NotificationScreen(
-                onBackClick = { navController.popBackStack() },
-                onNotificationClick = TODO(),
-                viewModel = TODO()
-            )
-        }
-
-
-
         composable(ArifMusicScreens.ArtistDashboard.name) {
             ArtistDashboardScreen(
                 onBackClick = { navController.popBackStack() },
@@ -528,8 +511,6 @@ fun ArifMusicNavGraph(
             )
         }
 
-
-        // Artist Profile
         composable(ArifMusicScreens.ArtistProfile.name) {
             ArtistProfileScreen(
                 onBackClick = { navController.popBackStack() },
@@ -547,22 +528,18 @@ fun ArifMusicNavGraph(
                 },
                 artistViewModel = artistViewModel,
                 authViewModel = authViewModel,
-                followViewModel = followViewModel
+                followViewModel = followViewModel,
             )
         }
 
-
-        // Artist Verification
         composable(ArifMusicScreens.ArtistVerification.name) {
             ArtistVerificationScreen(
                 onBackClick = { navController.popBackStack() },
                 onSubmitClick = {
-                    // Submit verification request
                     navController.popBackStack()
                 }
             )
         }
-
 
         // Admin Panel
         composable(ArifMusicScreens.AdminPanel.name) {
@@ -584,8 +561,6 @@ fun ArifMusicNavGraph(
             )
         }
 
-
-        // Admin Profile
         composable(
             route = "${ArifMusicScreens.AdminProfile.name}/{userId}",
             arguments = listOf(navArgument("userId") { type = NavType.StringType })
@@ -609,7 +584,7 @@ fun ArifMusicNavGraph(
             )
         }
 
-        // Admin Featured Content
+
         composable(ArifMusicScreens.AdminFeaturedContent.name) {
             AdminFeaturedContentScreen(
                 adminViewModel = adminViewModel,
@@ -618,6 +593,3 @@ fun ArifMusicNavGraph(
         }
     }
 }
-
-
-
